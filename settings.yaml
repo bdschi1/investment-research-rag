@@ -10,6 +10,8 @@ vectorstore:
   backend: "faiss"
   path: "local_data/vectorstore"
   collection: "investment_docs"
+  # opensearch_endpoint: "https://<collection-id>.us-east-1.aoss.amazonaws.com"
+  # opensearch_region: "us-east-1"
 
 llm:
   provider: "ollama"

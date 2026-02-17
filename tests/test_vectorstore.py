@@ -1,4 +1,4 @@
-"""Tests for vector store backends — FAISS and Qdrant (in-memory)."""
+"""Tests for vector store backends — FAISS, Qdrant (in-memory), and OpenSearch (mocked)."""
 
 from __future__ import annotations
 
@@ -325,3 +325,142 @@ class TestVectorStoreFactory:
         clear_cache()
         s2 = get_vector_store("faiss", dimension=512)
         assert s1 is not s2
+
+
+# ---------------------------------------------------------------------------
+# OpenSearch Store Tests (mocked — no real OpenSearch needed)
+# ---------------------------------------------------------------------------
+
+
+class TestOpenSearchStore:
+    """Tests for OpenSearchStore using mocked opensearch-py client."""
+
+    @pytest.fixture(autouse=True)
+    def _patch_imports(self, monkeypatch):
+        """Mock opensearch-py, boto3, and requests-aws4auth before import."""
+        import sys
+        from unittest.mock import MagicMock
+
+        # Create mock modules
+        mock_opensearchpy = MagicMock()
+        mock_boto3 = MagicMock()
+        mock_aws4auth = MagicMock()
+
+        # Mock boto3 session credentials
+        mock_creds = MagicMock()
+        mock_creds.access_key = "fake-key"
+        mock_creds.secret_key = "fake-secret"
+        mock_creds.token = "fake-token"
+        mock_boto3.Session.return_value.get_credentials.return_value = mock_creds
+
+        # Store references for test methods
+        self._mock_os_module = mock_opensearchpy
+        self._mock_client = MagicMock()
+        mock_opensearchpy.OpenSearch.return_value = self._mock_client
+
+        # Index doesn't exist by default -> triggers create
+        self._mock_client.indices.exists.return_value = False
+
+        monkeypatch.setitem(sys.modules, "opensearchpy", mock_opensearchpy)
+        monkeypatch.setitem(sys.modules, "boto3", mock_boto3)
+        monkeypatch.setitem(sys.modules, "requests_aws4auth", mock_aws4auth)
+        mock_aws4auth.AWS4Auth = MagicMock()
+
+    @pytest.fixture
+    def store(self):
+        from rag.vectorstore.opensearch_store import OpenSearchStore
+
+        return OpenSearchStore(index_name="test_index", dimension=DIM)
+
+    def test_is_vector_store(self):
+        from rag.vectorstore.opensearch_store import OpenSearchStore
+
+        assert issubclass(OpenSearchStore, VectorStore)
+
+    def test_ensure_index_called(self, store):
+        """Index creation should be called when index doesn't exist."""
+        self._mock_client.indices.exists.assert_called_with("test_index")
+        self._mock_client.indices.create.assert_called_once()
+
+    def test_add_records(self, store):
+        records = [_make_record(f"doc {i}") for i in range(3)]
+        count = store.add(records)
+        assert count == 3
+        self._mock_client.bulk.assert_called_once()
+        self._mock_client.indices.refresh.assert_called_with("test_index")
+
+    def test_add_empty(self, store):
+        assert store.add([]) == 0
+        self._mock_client.bulk.assert_not_called()
+
+    def test_search_basic(self, store):
+        self._mock_client.search.return_value = {
+            "hits": {
+                "hits": [
+                    {
+                        "_id": "doc-1",
+                        "_score": 0.95,
+                        "_source": {
+                            "text": "revenue grew 10%",
+                            "doc_type": "sec_filing",
+                            "ticker": "AAPL",
+                            "filing_date": None,
+                            "section_name": None,
+                            "item_number": None,
+                            "speaker": None,
+                            "page_numbers": [],
+                            "source_filename": None,
+                        },
+                    }
+                ]
+            }
+        }
+
+        results = store.search(_random_embedding(), top_k=5)
+        assert len(results) == 1
+        assert results[0].text == "revenue grew 10%"
+        assert results[0].score == 0.95
+        assert results[0].metadata.ticker == "AAPL"
+        self._mock_client.search.assert_called_once()
+
+    def test_search_with_metadata_filter(self, store):
+        self._mock_client.search.return_value = {"hits": {"hits": []}}
+
+        mf = MetadataFilter(ticker="AAPL", doc_type="sec_filing")
+        store.search(_random_embedding(), top_k=5, metadata_filter=mf)
+
+        call_args = self._mock_client.search.call_args
+        body = call_args[1]["body"] if "body" in call_args[1] else call_args[0][1]
+        # Verify filter clauses are present in the bool query
+        assert "bool" in body["query"]
+        assert "filter" in body["query"]["bool"]
+
+    def test_count(self, store):
+        self._mock_client.count.return_value = {"count": 42}
+        assert store.count() == 42
+
+    def test_count_error_returns_zero(self, store):
+        self._mock_client.count.side_effect = Exception("connection error")
+        assert store.count() == 0
+
+    def test_delete(self, store):
+        count = store.delete(["id-1", "id-2"])
+        assert count == 2
+        self._mock_client.bulk.assert_called_once()
+        self._mock_client.indices.refresh.assert_called()
+
+    def test_clear(self, store):
+        self._mock_client.indices.exists.return_value = True
+        store.clear()
+        self._mock_client.indices.delete.assert_called_with("test_index")
+        # _ensure_index is called again after delete
+        assert self._mock_client.indices.create.call_count >= 1
+
+    def test_store_name(self):
+        from rag.vectorstore.opensearch_store import OpenSearchStore
+
+        assert OpenSearchStore.store_name() == "OpenSearchStore"
+
+    def test_factory_registration(self):
+        stores = available_stores()
+        assert "opensearch" in stores

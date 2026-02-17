@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 _STORE_REGISTRY: list[tuple[str, str, str]] = [
     ("faiss", "rag.vectorstore.faiss_store", "FAISSStore"),
     ("qdrant", "rag.vectorstore.qdrant_store", "QdrantStore"),
+    ("opensearch", "rag.vectorstore.opensearch_store", "OpenSearchStore"),
 ]
 
 # Singleton cache
@@ -29,7 +30,7 @@ def get_vector_store(
     """Get a vector store by name.
 
     Args:
-        provider: One of ``faiss``, ``qdrant``.
+        provider: One of ``faiss``, ``qdrant``, ``opensearch``.
         **kwargs: Passed to the store constructor.
 
     Returns:

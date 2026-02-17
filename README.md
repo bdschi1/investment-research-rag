@@ -3,7 +3,7 @@
 [![CI](https://github.com/bdschi1/investment-research-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/bdschi1/investment-research-rag/actions)
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-![Tests](https://img.shields.io/badge/tests-255%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/tests-275%20passed-brightgreen)
 ![Ruff](https://img.shields.io/badge/lint-ruff%20%E2%9C%93-black)
 
 ![Pydantic](https://img.shields.io/badge/Pydantic-v2-E92063?logo=pydantic&logoColor=white)
@@ -11,6 +11,9 @@
 ![tiktoken](https://img.shields.io/badge/tiktoken-OpenAI-412991?logo=openai&logoColor=white)
 ![Typer](https://img.shields.io/badge/Typer-CLI-009688)
 ![Rich](https://img.shields.io/badge/Rich-Console-4B8BBE)
+![Terraform](https://img.shields.io/badge/Terraform-IaC-7B42BC?logo=terraform&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Container-2496ED?logo=docker&logoColor=white)
+![AWS](https://img.shields.io/badge/AWS-Cloud-FF9900?logo=amazonaws&logoColor=white)
 
 **Retrieval-augmented generation for institutional investment research -- SEC filings, earnings transcripts, equity research reports, and financial models.**
 
@@ -57,7 +60,7 @@ All document inputs pass through an 8-pattern prompt injection defense layer bef
   ┌─────────────────────────────────────────────────────────┐
   │              Embedding + Vector Store                     │
   │                                                          │
-  │  Ollama / OpenAI / HuggingFace  ───>  FAISS / Qdrant    │
+  │  Ollama / OpenAI / HuggingFace  ─>  FAISS / Qdrant / OS │
   └─────────────────────────┬───────────────────────────────┘
                             |
                             v
@@ -86,7 +89,7 @@ All document inputs pass through an 8-pattern prompt injection defense layer bef
 - **8-pattern prompt injection defense** on all document inputs -- detects and redacts injection attempts ("ignore previous instructions", role reassignment, system prompt overrides) before any text enters the pipeline.
 - **Dense retrieval with cross-encoder reranking** -- initial retrieval over-fetches at 3x top-k, then a cross-encoder reranker prunes to the final result set for higher precision.
 - **3 embedding providers** -- Ollama (local, zero API cost), OpenAI (`text-embedding-3-small/large`), HuggingFace (`sentence-transformers`).
-- **2 vector stores** -- FAISS (local, zero infrastructure) and Qdrant (production-grade, metadata filtering).
+- **3 vector stores** -- FAISS (local, zero infrastructure), Qdrant (production-grade, metadata filtering), and OpenSearch Serverless (AWS-native, cloud deployment).
 - **3 LLM providers** -- Ollama (DeepSeek-R1, Llama, Mistral), Anthropic (Claude), OpenAI (GPT-4). Swap via config or environment variable.
 - **End-to-end citation traceability** -- every answer chunk maps back to source document, page number, and section header.
 - **Built-in evaluation suite** -- retrieval metrics (precision@k, recall@k, MRR, nDCG) and LLM answer grading with scenario-based test data.
@@ -121,6 +124,7 @@ All document inputs pass through an 8-pattern prompt injection defense layer bef
 |---|---|
 | **FAISS** (default) | Local file-based, zero infrastructure |
 | **Qdrant** | Production-grade, supports metadata filtering |
+| **OpenSearch Serverless** | AWS-native, k-NN vector search, SigV4 auth |
 
 ### LLM Providers
 
@@ -183,6 +187,8 @@ pip install -e ".[all]"
 | `reranker` | sentence-transformers | Cross-encoder reranking |
 | `sec` | pymupdf | Enhanced SEC filing parsing |
 | `excel` | openpyxl | Excel/XLSX model ingestion |
+| `opensearch` | opensearch-py, boto3, requests-aws4auth | AWS OpenSearch vector store |
+| `aws` | opensearch-py, boto3, requests-aws4auth | Cloud deployment (alias) |
 | `local` | faiss-cpu, sentence-transformers, ollama | Zero-API-key stack |
 | `dev` | pytest, pytest-cov, ruff, fpdf2 | Testing and linting |
 | `all` | Everything above | Full install |
@@ -207,6 +213,70 @@ RAG_LLM__MODEL=claude-sonnet-4-20250514
 ```
 
 Configuration is managed via `pydantic-settings` -- any nested key can be set as an environment variable using double-underscore (`__`) separators.
+
+---
+
+## Cloud Deployment (AWS)
+
+Full AWS infrastructure defined in Terraform. S3 upload triggers an ingest Lambda via SQS, embeddings are stored in OpenSearch Serverless, and a query Lambda behind API Gateway serves retrieval requests.
+
+```
+                    ┌───────────────────────────────────────────────┐
+  Upload            │              AWS Cloud                        │
+  ──────>  S3 ──>  SQS  ──>  Lambda (ingest)  ──>  OpenSearch     │
+                    │              Serverless                       │
+  Query             │                                  ^            │
+  ──────>  API GW ──>  Lambda (query)  ──>  OpenSearch | ──> LLM   │
+                    │                         (k-NN)               │
+                    └───────────────────────────────────────────────┘
+```
+
+### Infrastructure Modules
+
+| Module | Resources | Purpose |
+|---|---|---|
+| `storage` | S3 bucket + ECR repo | Document uploads + container images |
+| `queue` | SQS queue + DLQ | Event-driven ingest with retry |
+| `vectordb` | OpenSearch Serverless | k-NN vector search (cosine similarity) |
+| `ingest` | Lambda (container image) | S3 → chunk → embed → store |
+| `query` | Lambda (container image) | Retrieve → rerank → LLM response |
+| `api` | API Gateway HTTP API | HTTPS endpoint with CORS + logging |
+| `iam` | IAM roles + policies | Least-privilege per Lambda function |
+
+### Deploy
+
+```bash
+# Prerequisites: AWS CLI configured, Docker, Terraform
+
+# Build and push container image
+docker build -t rag .
+aws ecr get-login-password | docker login --username AWS --password-stdin <account>.dkr.ecr.<region>.amazonaws.com
+docker tag rag:latest <ecr-url>:latest
+docker push <ecr-url>:latest
+
+# Deploy infrastructure
+cd terraform
+terraform init
+terraform plan -var-file=environments/dev.tfvars
+terraform apply -var-file=environments/dev.tfvars
+```
+
+### Environment Configs
+
+| Config | OpenSearch | Lambda Memory | Use Case |
+|---|---|---|---|
+| `dev.tfvars` | 2 OCU | 512 MB | Development/testing |
+| `prod.tfvars` | 4 OCU | 1024 MB | Production workloads |
+
+### Docker (Local Development)
+
+```bash
+# Run with local Qdrant + S3 emulation (LocalStack)
+docker-compose up -d
+
+# Or build Lambda container only
+docker build -t rag .
+```
 
 ---
 
@@ -247,6 +317,7 @@ investment-research-rag/
 │   │   ├── base.py             # Abstract vector store
 │   │   ├── faiss_store.py      # FAISS (local, file-based)
 │   │   ├── qdrant_store.py     # Qdrant (production-grade)
+│   │   ├── opensearch_store.py # OpenSearch Serverless (AWS)
 │   │   ├── factory.py          # Store factory
 │   │   └── schemas.py          # Search result models
 │   │
@@ -278,19 +349,44 @@ investment-research-rag/
 ├── cli/
 │   └── main.py                 # Typer CLI: rag ingest | query | eval
 │
-├── tests/                      # 255 tests across 11 test modules
+├── lambda/                     # AWS Lambda handlers
+│   ├── ingest_handler.py       # S3 → SQS → ingest pipeline
+│   └── query_handler.py        # API Gateway → query pipeline
+│
+├── terraform/                  # Infrastructure as Code (AWS)
+│   ├── main.tf                 # Root module (composes all modules)
+│   ├── variables.tf            # Input variables
+│   ├── outputs.tf              # API endpoint, S3 bucket, etc.
+│   ├── providers.tf            # AWS provider + versions
+│   ├── backend.tf              # S3 remote state + DynamoDB locks
+│   ├── modules/
+│   │   ├── storage/            # S3 bucket + ECR repository
+│   │   ├── queue/              # SQS queue + dead-letter queue
+│   │   ├── vectordb/           # OpenSearch Serverless collection
+│   │   ├── ingest/             # Ingest Lambda function
+│   │   ├── query/              # Query Lambda function
+│   │   ├── api/                # API Gateway HTTP API
+│   │   └── iam/                # IAM roles + least-privilege policies
+│   └── environments/
+│       ├── dev.tfvars
+│       └── prod.tfvars
+│
+├── tests/                      # 275 tests across 13 test modules
 │   ├── test_boilerplate.py     # Boilerplate filter tests (21)
 │   ├── test_chunkers.py        # All 4 chunkers (42)
 │   ├── test_embeddings.py      # Embedding providers (15)
 │   ├── test_evaluation.py      # Eval metrics + grading (30)
+│   ├── test_lambda_handlers.py # Lambda ingest + query handlers (8)
 │   ├── test_loader.py          # Document loading (21)
 │   ├── test_pipeline.py        # Ingest + query pipeline (23)
 │   ├── test_retrieval.py       # Retriever + reranker (13)
 │   ├── test_sanitize.py        # Injection defense (18)
 │   ├── test_scoring.py         # Page importance scoring (24)
 │   ├── test_sec_parser.py      # SEC ITEM parsing (14)
-│   └── test_vectorstore.py     # FAISS + Qdrant stores (34)
+│   └── test_vectorstore.py     # FAISS + Qdrant + OpenSearch (46)
 │
+├── Dockerfile                  # Multi-stage build for Lambda container
+├── docker-compose.yml          # Local dev: Qdrant + LocalStack
 ├── settings.yaml               # Default configuration
 ├── pyproject.toml              # Build config, deps, tool settings
 └── LICENSE                     # MIT
@@ -300,7 +396,7 @@ investment-research-rag/
 
 ## Testing
 
-255 tests across 11 modules. Zero ruff lint errors.
+275 tests across 13 modules. Zero ruff lint errors.
 
 ```bash
 # Run full suite

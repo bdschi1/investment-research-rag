@@ -23,6 +23,8 @@ class VectorStoreSettings(BaseModel):
     backend: str = "faiss"
     path: str = "local_data/vectorstore"
     collection: str = "investment_docs"
+    opensearch_endpoint: str | None = None
+    opensearch_region: str = "us-east-1"
 
 
 class LLMSettings(BaseModel):
