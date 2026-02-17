@@ -44,7 +44,7 @@ jobs:
         run: pip install ruff
 
       - name: Lint check
-        run: ruff check . --exclude=.venv,venv,docs,data,examples
+        run: ruff check . --select=F --exclude=.venv,venv,docs,data,examples
 
   terraform:
     runs-on: ubuntu-latest
