@@ -1,0 +1,25 @@
+scenarios:
+  - id: "sec_revenue"
+    question: "What was the company's total revenue for the fiscal year?"
+    expected_answer: "Total revenue for the fiscal year should be extracted from Item 7 or financial statements."
+    ticker: "AAPL"
+    doc_type: "sec_filing"
+    tags: ["revenue", "10-K", "quantitative"]
+
+  - id: "sec_risk_factors"
+    question: "What are the key risk factors disclosed in the filing?"
+    expected_answer: "Risk factors should be extracted from Item 1A."
+    ticker: "AAPL"
+    doc_type: "sec_filing"
+    tags: ["risk", "10-K", "qualitative"]
+
+  - id: "sec_segment_revenue"
+    question: "How did revenue break down by business segment?"
+    expected_answer: "Segment revenue breakdown from MD&A or financial statements."
+    doc_type: "sec_filing"
+    tags: ["segments", "10-K", "quantitative"]
+
+  - id: "sec_mda_trends"
+    question: "What key trends did management highlight in the MD&A section?"
+    doc_type: "sec_filing"
+    tags: ["mda", "10-K", "qualitative"]

@@ -1,0 +1,32 @@
+# investment-research-rag default settings
+# Override per-environment with settings-local.yaml, settings-prod.yaml, etc.
+
+embedding:
+  provider: "ollama"
+  model: "nomic-embed-text"
+  dimension: 768
+
+vectorstore:
+  backend: "faiss"
+  path: "local_data/vectorstore"
+  collection: "investment_docs"
+
+llm:
+  provider: "ollama"
+  model: "deepseek-r1:32b"
+  temperature: 0.2
+  max_tokens: 2048
+
+chunking:
+  max_tokens: 800
+  overlap_tokens: 100
+  small_file_threshold: 3000
+
+retrieval:
+  top_k: 5
+  rerank: false
+  similarity_threshold: 0.0
+
+ingestion:
+  supported_formats: [".pdf", ".docx", ".txt", ".xlsx"]
+  max_file_size_mb: 100

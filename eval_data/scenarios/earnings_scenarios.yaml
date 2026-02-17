@@ -1,0 +1,16 @@
+scenarios:
+  - id: "earnings_guidance"
+    question: "What guidance did management provide for the next quarter?"
+    expected_answer: "Management guidance from the earnings call prepared remarks."
+    doc_type: "earnings_transcript"
+    tags: ["guidance", "forward-looking"]
+
+  - id: "earnings_key_metrics"
+    question: "What were the key financial metrics discussed on the earnings call?"
+    doc_type: "earnings_transcript"
+    tags: ["metrics", "quantitative"]
+
+  - id: "earnings_analyst_concerns"
+    question: "What concerns did analysts raise during the Q&A session?"
+    doc_type: "earnings_transcript"
+    tags: ["qa", "analyst", "qualitative"]
